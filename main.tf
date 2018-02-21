@@ -15,7 +15,7 @@ resource "azurerm_resource_group" "vmss" {
 
 resource "azurerm_virtual_network" "vmss" {
   name                = "${var.resource_group_name}-vnet"
-  address_space       = ["10.44.0.0/16"]
+  address_space       = ["${var.address_space}"]
   location            = "${var.location}"
   resource_group_name = "${azurerm_resource_group.vmss.name}"
 }
@@ -24,14 +24,14 @@ resource "azurerm_subnet" "vmss" {
   name                 = "${var.resource_group_name}-vmss-subnet"
   resource_group_name  = "${azurerm_resource_group.vmss.name}"
   virtual_network_name = "${azurerm_virtual_network.vmss.name}"
-  address_prefix       = "10.44.0.0/24"
+  address_prefix       = "${var.subnet_vmss}"
 }
 
 resource "azurerm_subnet" "gateway" {
   name                 = "${var.resource_group_name}-ag-subnet"
   resource_group_name  = "${azurerm_resource_group.vmss.name}"
   virtual_network_name = "${azurerm_virtual_network.vmss.name}"
-  address_prefix       = "10.44.254.0/24"
+  address_prefix       = "${var.subnet_ag}"
 }
 
 resource "azurerm_public_ip" "vmss" {
@@ -60,9 +60,9 @@ resource "azurerm_application_gateway" "vmss" {
   location            = "${var.location}"
 
   sku {
-    name     = "Standard_Small"
+    name     = "${var.ag_name}"
     tier     = "Standard"
-    capacity = 2
+    capacity = "${var.ag_count}"
   }
 
   gateway_ip_configuration {
@@ -89,7 +89,7 @@ resource "azurerm_application_gateway" "vmss" {
       cookie_based_affinity = "Disabled"
       port                  = 80
       protocol              = "Http"
-      request_timeout       = 1
+      request_timeout       = 10
   }
 
   http_listener {
@@ -119,15 +119,15 @@ resource "azurerm_virtual_machine_scale_set" "vmss" {
   upgrade_policy_mode = "Manual"
 
   sku {
-    name     = "Standard_DS1_v2"
+    name     = "${var.vmss_type}"
     tier     = "Standard"
-    capacity = 2
+    capacity = "${var.vmss_count}"
   }
 
   storage_profile_image_reference {
-    publisher = "Canonical"
-    offer     = "UbuntuServer"
-    sku       = "16.04-LTS"
+    publisher = "OpenLogic"
+    offer     = "CentOS"
+    sku       = "7.3"
     version   = "latest"
   }
 
@@ -135,7 +135,7 @@ resource "azurerm_virtual_machine_scale_set" "vmss" {
     name              = ""
     caching           = "ReadWrite"
     create_option     = "FromImage"
-    managed_disk_type = "Standard_LRS"
+    managed_disk_type = "Premium_LRS"
   }
 
   os_profile {
@@ -215,9 +215,9 @@ resource "azurerm_virtual_machine" "jumphost" {
   delete_os_disk_on_termination = true
 
   storage_image_reference {
-    publisher = "Canonical"
-    offer     = "UbuntuServer"
-    sku       = "16.04-LTS"
+    publisher = "OpenLogic"
+    offer     = "CentOS"
+    sku       = "7.3"
     version   = "latest"
   }
 
@@ -247,14 +247,14 @@ resource "azurerm_storage_account" "data" {
   location                 = "${var.location}"
   resource_group_name      = "${azurerm_resource_group.vmss.name}"
   account_tier             = "Standard"
-  account_replication_type = "LRS"
+  account_replication_type = "${var.data_replication}"
 }
 
 resource "azurerm_storage_share" "data" {
   name                 = "web-data"
   resource_group_name  = "${azurerm_resource_group.vmss.name}"
   storage_account_name = "${azurerm_storage_account.data.name}"
-  quota                = 5
+  quota                = "${var.data_quota}"
 }
 
 resource "azurerm_storage_container" "data" {
@@ -265,12 +265,40 @@ resource "azurerm_storage_container" "data" {
 }
 
 resource "azurerm_storage_blob" "bootstrap" {
-  name                   = "files/bootstrap.sh"
+  name                   = "bootstrap.sh"
   resource_group_name    = "${azurerm_resource_group.vmss.name}"
   storage_account_name   = "${azurerm_storage_account.data.name}"
   storage_container_name = "${azurerm_storage_container.data.name}"
   type                   = "block"
   size                   = 5120
-  source                 = "bootstrap.sh"
+  source                 = "files/bootstrap.sh"
 }
 
+
+# ------------------------- Database -------------------------------
+
+resource "azurerm_mysql_server" "db" {
+  name                = "${var.resource_group_name}-db"
+  location            = "${var.location}"
+  resource_group_name = "${azurerm_resource_group.vmss.name}"
+
+  sku {
+    name = "MYSQLB50"
+    capacity = 50
+    tier = "Basic"
+  }
+
+  administrator_login = "${var.db_user}"
+  administrator_login_password = "${var.db_pass}"
+  version = "5.7"
+  storage_mb = "${var.db_quota}"
+  ssl_enforcement = "Disabled"
+}
+
+resource "azurerm_mysql_database" "db" {
+  name                = "${var.resource_group_name}db"
+  resource_group_name = "${azurerm_resource_group.vmss.name}"
+  server_name         = "${azurerm_mysql_server.db.name}"
+  charset             = "utf8"
+  collation           = "utf8_unicode_ci"
+}
