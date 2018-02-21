@@ -22,7 +22,7 @@ variable "vmss_type" {
     description = "Size of VMs in the scale set"
     default = "Standard_DS1_v2"
 }
-variable "vm_count" {
+variable "vmss_count" {
     description = "Number of instances in the scale set"
     default = "2"
 }
@@ -37,7 +37,7 @@ variable "subnet_vmss" {
     default = "10.44.0.0/24"
 }
 
-variable "subnet_gw" {
+variable "subnet_ag" {
     description = "Subnet for application gateway"
     default = "10.44.254.0/24"
 }
@@ -72,5 +72,5 @@ variable "db_pass" {
 }
 variable "db_quota" {
     description = "Database quota in MB"
-    default = "5120"
+    default = "51200"
 }
